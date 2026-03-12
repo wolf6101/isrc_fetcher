@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "isrc-fetcher"
+version = "1.0.0"
+description = "Excel add-in to fetch ISRC codes using Spotify and MusicBrainz APIs"
+requires-python = ">=3.9"
+dependencies = [
+    "openpyxl>=3.1.0",
+    "requests>=2.31.0",
+]
