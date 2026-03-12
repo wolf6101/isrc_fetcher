@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 title ISRC Fetcher - Install
 color 0B
 echo.
@@ -9,10 +10,9 @@ echo.
 
 REM --- Check Python ---
 python --version >nul 2>&1
-if %ERRORLEVEL% neq 0 (
+if !ERRORLEVEL! neq 0 (
     echo  Python not found. Downloading and installing Python 3.12...
     echo.
-    set PY_INSTALLER=%TEMP%\python-installer.exe
     powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe' -OutFile '%TEMP%\python-installer.exe'"
     if not exist "%TEMP%\python-installer.exe" (
         echo  [ERROR] Could not download Python.
@@ -26,10 +26,10 @@ if %ERRORLEVEL% neq 0 (
     del "%TEMP%\python-installer.exe" >nul 2>&1
 
     REM Refresh PATH so python is found in this session
-    for /f "tokens=*" %%p in ('powershell -Command "[Environment]::GetEnvironmentVariable(\"PATH\",\"User\")"') do set "PATH=%%p;%PATH%"
+    for /f "usebackq tokens=*" %%p in (`powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('PATH','User')"`) do set "PATH=%%p;%PATH%"
 
     python --version >nul 2>&1
-    if %ERRORLEVEL% neq 0 (
+    if !ERRORLEVEL! neq 0 (
         echo.
         echo  [ERROR] Python installation failed or PATH not updated yet.
         echo  Please restart your computer and run INSTALL.bat again.
@@ -48,7 +48,7 @@ REM --- Install dependencies ---
 echo  Installing required packages...
 echo.
 pip install --quiet openpyxl requests
-if %ERRORLEVEL% neq 0 (
+if !ERRORLEVEL! neq 0 (
     echo.
     echo  [ERROR] Package installation failed.
     echo  Try running this file as Administrator.
@@ -61,17 +61,11 @@ echo  Packages installed successfully.
 REM --- Create desktop shortcut ---
 echo.
 echo  Creating desktop shortcut...
-set SHORTCUT_PATH=%USERPROFILE%\Desktop\ISRC Fetcher.lnk
-set APP_DIR=%~dp0
-set APP_DIR=%APP_DIR:~0,-1%
+set "SHORTCUT_PATH=%USERPROFILE%\Desktop\ISRC Fetcher.lnk"
+set "APP_DIR=%~dp0"
+set "APP_DIR=%APP_DIR:~0,-1%"
 
-powershell -Command ^
-  "$ws = New-Object -ComObject WScript.Shell; " ^
-  "$s = $ws.CreateShortcut('%SHORTCUT_PATH%'); " ^
-  "$s.TargetPath = '%APP_DIR%\Start ISRC Fetcher.bat'; " ^
-  "$s.WorkingDirectory = '%APP_DIR%'; " ^
-  "$s.Description = 'ISRC Fetcher'; " ^
-  "$s.Save()"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%APP_DIR%\Start ISRC Fetcher.bat'; $s.WorkingDirectory = '%APP_DIR%'; $s.Description = 'ISRC Fetcher'; $s.Save()"
 
 if exist "%SHORTCUT_PATH%" (
     echo  Desktop shortcut created: "ISRC Fetcher"
