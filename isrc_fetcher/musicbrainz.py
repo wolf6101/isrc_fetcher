@@ -11,8 +11,9 @@ class MusicBrainzClient:
     BASE_URL = "https://musicbrainz.org/ws/2"
     USER_AGENT = "ISRCFetcher/1.0 (Excel Add-in)"
 
-    def __init__(self):
+    def __init__(self, log=None):
         self._last_request_time = 0
+        self._log = log or (lambda msg: None)
         # MusicBrainz: max 1 request per second
         self._min_interval = 1.1
 
@@ -22,20 +23,34 @@ class MusicBrainzClient:
             time.sleep(self._min_interval - elapsed)
 
     def _get(self, endpoint: str, params: dict) -> dict:
-        self._rate_limit()
         params["fmt"] = "json"
-        resp = requests.get(
-            f"{self.BASE_URL}/{endpoint}",
-            params=params,
-            headers={"User-Agent": self.USER_AGENT},
-            timeout=15,
-        )
-        self._last_request_time = time.time()
-        if resp.status_code == 503:
-            time.sleep(2)
-            return self._get(endpoint, params)
-        resp.raise_for_status()
-        return resp.json()
+        for attempt in range(4):  # up to 3 retries
+            self._rate_limit()
+            resp = requests.get(
+                f"{self.BASE_URL}/{endpoint}",
+                params=params,
+                headers={"User-Agent": self.USER_AGENT},
+                timeout=15,
+            )
+            self._last_request_time = time.time()
+            if resp.status_code == 503:
+                wait = 2 * (attempt + 1)
+                self._log(
+                    f"WARNING: MusicBrainz unavailable (HTTP 503). "
+                    f"Waiting {wait}s. Attempt {attempt + 1}/4"
+                )
+                if attempt >= 3:
+                    self._log("WARNING: MusicBrainz still unavailable — giving up after 4 attempts")
+                    raise requests.RequestException(
+                        f"MusicBrainz unavailable after {attempt + 1} attempts"
+                    )
+                time.sleep(wait)
+                continue
+            if resp.status_code != 200:
+                self._log(f"WARNING: MusicBrainz returned HTTP {resp.status_code}")
+            resp.raise_for_status()
+            return resp.json()
+        return {"recordings": []}
 
     @staticmethod
     def _clean_title(title: str) -> str:
@@ -98,7 +113,8 @@ class MusicBrainzClient:
         for query in queries:
             try:
                 data = self._get("recording", {"query": query, "limit": 10})
-            except requests.RequestException:
+            except requests.RequestException as e:
+                self._log(f"WARNING: MusicBrainz search failed: {e}")
                 continue
             results = self._extract_results(data, duration_seconds)
             if results:

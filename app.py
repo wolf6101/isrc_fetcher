@@ -6,6 +6,7 @@ Works on Mac and Windows — no extra dependencies beyond openpyxl + requests.
 """
 from __future__ import annotations
 
+import collections
 import json
 import os
 import re
@@ -32,10 +33,12 @@ import openpyxl
 # Job state (shared between HTTP handler and background worker thread)
 # ---------------------------------------------------------------------------
 
+_lock = threading.Lock()
+_log_buffer: collections.deque = collections.deque(maxlen=5000)
+
 job_state: dict = {
     "running": False,
     "cancel": False,
-    "log": [],
     "progress": 0,
     "total": 0,
     "done": False,
@@ -46,9 +49,23 @@ job_state: dict = {
     "current": "",
 }
 
+_worker_thread: threading.Thread | None = None
+
 
 def _log(msg: str) -> None:
-    job_state["log"].append(msg)
+    with _lock:
+        _log_buffer.append(msg)
+
+
+def _get_status() -> dict:
+    with _lock:
+        return {
+            **{k: job_state[k] for k in (
+                "running", "progress", "total", "done",
+                "found", "not_found", "warnings", "skipped", "current",
+            )},
+            "log": list(_log_buffer),
+        }
 
 
 def _parse_duration(raw) -> int | None:
@@ -63,19 +80,27 @@ def _parse_duration(raw) -> int | None:
 # ---------------------------------------------------------------------------
 
 def run_fetch(file_path: str, row_start: int, row_end: int) -> None:
-    job_state.update(
-        running=True, cancel=False, log=[], progress=0, done=False,
-        found=0, not_found=0, warnings=0, skipped=0, current="",
-    )
+    with _lock:
+        job_state.update(
+            running=True, cancel=False, progress=0, done=False,
+            found=0, not_found=0, warnings=0, skipped=0, current="",
+        )
+        _log_buffer.clear()
 
     try:
         cfg = load_config()
+        source = cfg.get("source", "deezer")
+        # Support both old single-account and new multi-account config
+        accounts = cfg.get("spotify_accounts", [])
+        if not accounts and cfg.get("spotify_client_id"):
+            accounts = [{"client_id": cfg["spotify_client_id"],
+                         "client_secret": cfg.get("spotify_client_secret", "")}]
         fetcher = ISRCFetcher(
-            spotify_client_id=cfg.get("spotify_client_id"),
-            spotify_client_secret=cfg.get("spotify_client_secret"),
+            spotify_accounts=accounts,
+            source=source,
+            log=_log,
         )
-        if not cfg.get("spotify_client_id"):
-            _log("Warning: No Spotify credentials. Using MusicBrainz only (slower).")
+        _log(f"Primary source: {source.capitalize()}")
 
         wb = openpyxl.load_workbook(file_path)
         ws = wb.active
@@ -97,7 +122,7 @@ def run_fetch(file_path: str, row_start: int, row_end: int) -> None:
         for i, row in enumerate(rows, 1):
             if job_state["cancel"]:
                 _log("Cancelled by user.")
-                wb.save(file_path)
+                _safe_save(wb, file_path)
                 _log("Partial results saved.")
                 break
 
@@ -122,6 +147,7 @@ def run_fetch(file_path: str, row_start: int, row_end: int) -> None:
             result = fetcher.fetch(title, artist, _parse_duration(duration_raw))
 
             if result["isrc"]:
+                src_tag = f"[{result.get('source', '?')}]"
                 ws.cell(row=row, column=COL_ISRC).value = result["isrc"]
                 found += 1
                 job_state["found"] = found
@@ -130,10 +156,10 @@ def run_fetch(file_path: str, row_start: int, row_end: int) -> None:
                     warnings += 1
                     job_state["warnings"] = warnings
                     ws.cell(row=row, column=COL_STATUS).value = "Duration mismatch"
-                    _log(f"[{i}/{len(rows)}] [R{row}] {artist} - {title} -> {result['isrc']} (duration mismatch)")
+                    _log(f"[{i}/{len(rows)}] [R{row}] {src_tag} {artist} - {title} -> {result['isrc']} (duration mismatch)")
                 else:
                     ws.cell(row=row, column=COL_STATUS).value = "Exact match"
-                    _log(f"[{i}/{len(rows)}] [R{row}] {artist} - {title} -> {result['isrc']}")
+                    _log(f"[{i}/{len(rows)}] [R{row}] {src_tag} {artist} - {title} -> {result['isrc']}")
 
                 matched = result.get("matched")
                 if matched:
@@ -150,8 +176,12 @@ def run_fetch(file_path: str, row_start: int, row_end: int) -> None:
                 ws.cell(row=row, column=COL_STATUS).value = "Not found"
                 _log(f"[{i}/{len(rows)}] [R{row}] {artist} - {title} -> NOT FOUND")
 
+            # Save every 5 rows to avoid losing progress
+            if i % 5 == 0:
+                _safe_save(wb, file_path)
+
         else:
-            wb.save(file_path)
+            _safe_save(wb, file_path)
 
         _log("")
         _log(f"Done! Found: {found} | Not found: {not_found} | Duration warnings: {warnings} | Skipped: {skipped}")
@@ -162,6 +192,15 @@ def run_fetch(file_path: str, row_start: int, row_end: int) -> None:
     finally:
         job_state["running"] = False
         job_state["done"] = True
+
+
+def _safe_save(wb, file_path: str) -> None:
+    """Save workbook with error handling to prevent silent data loss."""
+    try:
+        wb.save(file_path)
+        _log(f"Excel saved: {os.path.basename(file_path)}")
+    except Exception as e:
+        _log(f"WARNING: Failed to save file: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +223,7 @@ def _open_file_dialog() -> str | None:
 
     elif sys.platform == "win32":
         ps = (
+            '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
             'Add-Type -AssemblyName System.Windows.Forms; '
             '$d = New-Object System.Windows.Forms.OpenFileDialog; '
             '$d.Filter = "Excel files (*.xlsx;*.xls;*.xlsm)|*.xlsx;*.xls;*.xlsm"; '
@@ -191,9 +231,12 @@ def _open_file_dialog() -> str | None:
             'if ($d.ShowDialog() -eq "OK") { $d.FileName }'
         )
         try:
-            r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, timeout=120)
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-NoLogo", "-Command", ps],
+                capture_output=True, timeout=120,
+            )
             if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip()
+                return r.stdout.decode("utf-8-sig").strip()
         except Exception:
             pass
 
@@ -234,10 +277,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/config":
             self._json(load_config())
         elif self.path == "/api/status":
-            self._json({k: job_state[k] for k in (
-                "running", "progress", "total", "log", "done",
-                "found", "not_found", "warnings", "skipped", "current",
-            )})
+            self._json(_get_status())
         else:
             self.send_error(404)
 
@@ -245,19 +285,28 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
 
         if self.path == "/api/config":
-            save_config(json.loads(body))
+            try:
+                save_config(json.loads(body))
+            except (json.JSONDecodeError, ValueError) as e:
+                self._json({"error": f"Invalid JSON: {e}"}, 400)
+                return
             self._json({"ok": True})
 
         elif self.path == "/api/fetch":
             if job_state["running"]:
                 self._json({"error": "Already running"}, 409)
                 return
-            data = json.loads(body)
-            threading.Thread(
+            try:
+                data = json.loads(body)
+            except (json.JSONDecodeError, ValueError) as e:
+                self._json({"error": f"Invalid JSON: {e}"}, 400)
+                return
+            global _worker_thread
+            _worker_thread = threading.Thread(
                 target=run_fetch,
                 args=(data["file"], data.get("row_start", 2), data.get("row_end", -1)),
-                daemon=True,
-            ).start()
+            )
+            _worker_thread.start()
             self._json({"ok": True})
 
         elif self.path == "/api/cancel":
@@ -275,9 +324,13 @@ class Handler(BaseHTTPRequestHandler):
 # Entry point
 # ---------------------------------------------------------------------------
 
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
+
 def main():
     port = 8765
-    server = HTTPServer(("127.0.0.1", port), Handler)
+    server = ReusableHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://localhost:{port}"
     print(f"ISRC Fetcher running at {url}")
     print("Press Ctrl+C to stop.\n")
@@ -285,8 +338,13 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        print("\nShutting down...")
         server.server_close()
+        if _worker_thread and _worker_thread.is_alive():
+            print("Waiting for current job to finish (Ctrl+C again to force)...")
+            job_state["cancel"] = True
+            _worker_thread.join(timeout=10)
+        print("Stopped.")
 
 
 if __name__ == "__main__":

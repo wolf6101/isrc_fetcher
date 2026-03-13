@@ -1,9 +1,10 @@
-"""Core ISRC fetching logic — combines Spotify + MusicBrainz results."""
+"""Core ISRC fetching logic — combines Deezer, Spotify + MusicBrainz results."""
 from __future__ import annotations
 
 import re
 
-from isrc_fetcher.spotify import SpotifyClient
+from isrc_fetcher.deezer import DeezerClient
+from isrc_fetcher.spotify import SpotifyPool
 from isrc_fetcher.musicbrainz import MusicBrainzClient
 
 
@@ -12,22 +13,23 @@ class ISRCFetcher:
 
     def __init__(
         self,
-        spotify_client_id: str | None = None,
-        spotify_client_secret: str | None = None,
+        spotify_accounts: list[dict] | None = None,
+        source: str = "deezer",
+        log=None,
     ):
-        self.spotify = None
-        self.musicbrainz = MusicBrainzClient()
-
-        if spotify_client_id and spotify_client_secret:
-            self.spotify = SpotifyClient(spotify_client_id, spotify_client_secret)
+        self.source = source
+        self._log = log or (lambda msg: None)
+        self.deezer = DeezerClient(log=log)
+        self.musicbrainz = MusicBrainzClient(log=log)
+        self.spotify = SpotifyPool(spotify_accounts or [], log=log) if spotify_accounts else None
 
     @staticmethod
     def _artist_variants(artist: str) -> list[str]:
         """Generate artist name variants for broader matching.
 
         Handles comma-separated artists, leading special chars, etc.
-        E.g. '¡¡O,AMANDA WILSON,FREEMASONS' -> ['¡¡O,AMANDA WILSON,FREEMASONS',
-             'AMANDA WILSON', 'FREEMASONS', '¡¡O']
+        E.g. '!!O,AMANDA WILSON,FREEMASONS' -> ['!!O,AMANDA WILSON,FREEMASONS',
+             'AMANDA WILSON', 'FREEMASONS', '!!O']
         """
         variants = [artist]
         # Strip leading/trailing non-alphanumeric chars
@@ -41,18 +43,39 @@ class ISRCFetcher:
                 cleaned = re.sub(r'^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$', '', part)
                 if cleaned and cleaned not in variants:
                     variants.append(cleaned)
-        return variants
+        return variants[:4]
 
     def _search_all_sources(
         self, title: str, artist: str, duration_seconds: int | None
-    ) -> list[dict]:
-        """Try Spotify first, fall back to MusicBrainz."""
-        results = []
-        if self.spotify:
-            results = self.spotify.search_isrc(title, artist, duration_seconds)
-        if not results:
-            results = self.musicbrainz.search_isrc(title, artist, duration_seconds)
-        return results
+    ) -> tuple[list[dict], str]:
+        """Search sources based on configured priority.
+
+        Returns (results, source_name).
+        """
+        # Deezer -> MusicBrainz -> Spotify (Spotify last to preserve rate limits)
+        chain = [
+            ("Deezer", self.deezer),
+            ("MusicBrainz", self.musicbrainz),
+            ("Spotify", self.spotify),
+        ]
+
+        tried = []
+        for name, client in chain:
+            if client is None:
+                continue
+            results = client.search_isrc(title, artist, duration_seconds)
+            if results:
+                if tried:
+                    self._log(f"  >> not found on: {', '.join(tried)}")
+                # Include Spotify account label if applicable
+                if name == "Spotify" and self.spotify and self.spotify.last_account:
+                    name = f"Spotify {self.spotify.last_account}"
+                return results, name
+            tried.append(name)
+
+        if tried:
+            self._log(f"  >> not found on: {', '.join(tried)}")
+        return [], ""
 
     def fetch(
         self,
@@ -71,10 +94,11 @@ class ISRCFetcher:
             }
         """
         all_results = []
+        found_source = ""
 
         # Try each artist variant until we find results
         for artist_variant in self._artist_variants(artist):
-            all_results = self._search_all_sources(
+            all_results, found_source = self._search_all_sources(
                 title, artist_variant, duration_seconds
             )
             if all_results:
@@ -87,6 +111,7 @@ class ISRCFetcher:
                 "warning": "No results found",
                 "all_results": [],
                 "matched": None,
+                "source": "",
             }
 
         def _pack(r, exact_match, warning):
@@ -96,6 +121,7 @@ class ISRCFetcher:
                 "warning": warning,
                 "all_results": all_results,
                 "matched": r,
+                "source": found_source,
             }
 
         # If we have duration, prefer exact duration matches

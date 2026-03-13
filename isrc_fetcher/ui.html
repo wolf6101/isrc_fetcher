@@ -178,6 +178,7 @@
   }
   .src-badge { font-size: 9px; font-weight: 900; letter-spacing: 1.5px; padding: 5px 10px; border-radius: 6px; flex-shrink: 0; text-transform: uppercase; }
   .src-badge.sp { background: #1DB954; color: #000; }
+  .src-badge.dz { background: #A238FF; color: #fff; }
   .src-badge.mb { background: var(--purple); color: #fff; }
   .src-info { font-size: 12.5px; color: var(--t2); font-weight: 500; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
@@ -370,25 +371,39 @@
     <div class="card-label">Network Status</div>
     <div class="src-list">
       <div class="src-item">
+        <span class="src-badge dz">Deezer</span>
+        <span class="src-info"><span class="dot on"></span>Primary Source</span>
+      </div>
+      <div class="src-item">
         <span class="src-badge sp">Spotify</span>
         <span class="src-info"><span class="dot" id="spDot"></span><span id="spTxt">Checking...</span></span>
       </div>
       <div class="src-item">
         <span class="src-badge mb">MusicBrainz</span>
-        <span class="src-info"><span class="dot on"></span>Active Fallback System</span>
+        <span class="src-info"><span class="dot on"></span>Fallback</span>
       </div>
     </div>
     <hr class="div">
+    <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;">Spotify Account 1</div>
     <div class="field">
-      <label>Spotify Client ID</label>
-      <input type="text" id="clientId" placeholder="Enter API Key..." autocomplete="off">
+      <label>Client ID</label>
+      <input type="text" id="clientId1" placeholder="Enter API Key..." autocomplete="off">
     </div>
     <div class="field">
-      <label>Spotify Client Secret</label>
-      <input type="password" id="clientSecret" placeholder="••••••••••••••••••••••••••••••••">
+      <label>Client Secret</label>
+      <input type="password" id="clientSecret1" placeholder="••••••••••••••••••••••••••••••••">
+    </div>
+    <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin:16px 0 12px;">Spotify Account 2 <span style="opacity:.5;font-weight:400;">(optional)</span></div>
+    <div class="field">
+      <label>Client ID</label>
+      <input type="text" id="clientId2" placeholder="Enter API Key..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Client Secret</label>
+      <input type="password" id="clientSecret2" placeholder="••••••••••••••••••••••••••••••••">
     </div>
     <div class="save-row">
-      <button class="btn-sm" onclick="saveConfig()">Update Credentials</button>
+      <button class="btn-sm" onclick="saveConfig()">Save Settings</button>
       <span class="save-ok" id="saveOk">&#10003; Saved</span>
     </div>
   </div>
@@ -482,30 +497,51 @@ document.getElementById('ringGlow').style.strokeDashoffset = C;
 
 // ── Config load ───────────────────────────────────────────────────────────
 fetch('/api/config').then(r => r.json()).then(cfg => {
-  document.getElementById('clientId').value     = cfg.spotify_client_id     || '';
-  document.getElementById('clientSecret').value = cfg.spotify_client_secret || '';
-  setSpotify(cfg.spotify_client_id);
+  const accts = cfg.spotify_accounts || [];
+  if (accts[0]) {
+    document.getElementById('clientId1').value     = accts[0].client_id     || '';
+    document.getElementById('clientSecret1').value = accts[0].client_secret || '';
+  }
+  if (accts[1]) {
+    document.getElementById('clientId2').value     = accts[1].client_id     || '';
+    document.getElementById('clientSecret2').value = accts[1].client_secret || '';
+  }
+  // Backwards compat: old single-account config
+  if (!accts.length && cfg.spotify_client_id) {
+    document.getElementById('clientId1').value     = cfg.spotify_client_id     || '';
+    document.getElementById('clientSecret1').value = cfg.spotify_client_secret || '';
+  }
+  updateSpotifyDot();
 });
 
-function setSpotify(id) {
+function updateSpotifyDot() {
+  const id1 = document.getElementById('clientId1').value.trim();
+  const id2 = document.getElementById('clientId2').value.trim();
   const dot = document.getElementById('spDot');
   const txt = document.getElementById('spTxt');
-  if (id && id.trim()) {
+  const count = (id1 ? 1 : 0) + (id2 ? 1 : 0);
+  if (count > 0) {
     dot.className   = 'dot on';
-    txt.textContent = 'API Connected \u00b7 High Priority';
+    txt.textContent = count + ' account' + (count > 1 ? 's' : '') + ' \u00b7 Fallback';
   } else {
     dot.className   = 'dot off';
-    txt.textContent = 'Offline \u00b7 Fallback Active';
+    txt.textContent = 'No credentials';
   }
 }
 
 function saveConfig() {
-  const id = document.getElementById('clientId').value.trim();
+  const accounts = [];
+  const id1 = document.getElementById('clientId1').value.trim();
+  const sec1 = document.getElementById('clientSecret1').value.trim();
+  if (id1 && sec1) accounts.push({ client_id: id1, client_secret: sec1 });
+  const id2 = document.getElementById('clientId2').value.trim();
+  const sec2 = document.getElementById('clientSecret2').value.trim();
+  if (id2 && sec2) accounts.push({ client_id: id2, client_secret: sec2 });
   fetch('/api/config', { method: 'POST', body: JSON.stringify({
-    spotify_client_id:     id,
-    spotify_client_secret: document.getElementById('clientSecret').value.trim(),
+    spotify_accounts: accounts,
+    source: 'deezer',
   })}).then(() => {
-    setSpotify(id);
+    updateSpotifyDot();
     const el = document.getElementById('saveOk');
     el.classList.add('show');
     setTimeout(() => el.classList.remove('show'), 2000);
@@ -541,10 +577,12 @@ let activeFilter = null;
 let lastLog      = [];
 
 function classifyLine(l) {
-  if (l.includes('NOT FOUND'))                                  return 'missed';
-  if (l.includes('SKIPPED'))                                    return 'skipped';
-  if (l.includes('duration mismatch') || l.includes('WARNING')) return 'warn';
-  if (l.includes('->'))                                         return 'found';
+  // Only classify track result lines (start with [number/number])
+  if (!l.match(/^\[\d+\/\d+\]/)) return 'info';
+  if (l.includes('NOT FOUND'))       return 'missed';
+  if (l.includes('SKIPPED'))         return 'skipped';
+  if (l.includes('duration mismatch')) return 'warn';
+  if (l.includes('->'))              return 'found';
   return 'info';
 }
 
@@ -639,7 +677,7 @@ function poll() {
     document.getElementById('sSkip').textContent     = s.skipped   || 0;
     if (s.current) document.getElementById('npTrack').textContent = s.current;
 
-    if ((s.progress >= 100 || s.done) && s.total > 0 && !discoBallTriggered) {
+    if (s.done && s.total > 0 && !discoBallTriggered) {
       discoBallTriggered = true;
       triggerDiscoBall();
     }
