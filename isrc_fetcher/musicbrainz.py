@@ -4,6 +4,8 @@ from __future__ import annotations
 import time
 import requests
 
+from isrc_fetcher import cancel
+
 
 class MusicBrainzClient:
     """Fetches ISRC codes from MusicBrainz as a fallback source."""
@@ -20,7 +22,7 @@ class MusicBrainzClient:
     def _rate_limit(self):
         elapsed = time.time() - self._last_request_time
         if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
+            cancel.sleep(self._min_interval - elapsed)
 
     def _get(self, endpoint: str, params: dict) -> dict:
         params["fmt"] = "json"
@@ -33,18 +35,18 @@ class MusicBrainzClient:
                 timeout=15,
             )
             self._last_request_time = time.time()
-            if resp.status_code == 503:
-                wait = 2 * (attempt + 1)
+            if resp.status_code in (429, 503):
+                retry_after = int(resp.headers.get("Retry-After", 2 * (attempt + 1)))
                 self._log(
-                    f"WARNING: MusicBrainz unavailable (HTTP 503). "
-                    f"Waiting {wait}s. Attempt {attempt + 1}/4"
+                    f"WARNING: MusicBrainz HTTP {resp.status_code}. "
+                    f"Retry-After: {retry_after}s. Attempt {attempt + 1}/4"
                 )
                 if attempt >= 3:
                     self._log("WARNING: MusicBrainz still unavailable — giving up after 4 attempts")
                     raise requests.RequestException(
                         f"MusicBrainz unavailable after {attempt + 1} attempts"
                     )
-                time.sleep(wait)
+                cancel.sleep(retry_after)
                 continue
             if resp.status_code != 200:
                 self._log(f"WARNING: MusicBrainz returned HTTP {resp.status_code}")

@@ -10,6 +10,8 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 DEFAULT_CONFIG = {
     "spotify_accounts": [],
     "source": "deezer",
+    "openai_api_key": "",
+    "columns": {},
 }
 
 

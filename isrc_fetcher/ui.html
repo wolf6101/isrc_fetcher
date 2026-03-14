@@ -33,7 +33,7 @@
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
-    padding: 40px 20px 100px;
+    padding: 40px 20px 160px;
     -webkit-font-smoothing: antialiased;
     background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.025) 1px, transparent 0);
     background-size: 28px 28px;
@@ -88,7 +88,9 @@
     background-size: 300% 300%;
     animation: btnShift 4s ease infinite;
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    padding-right: 6px;
   }
+
   .hdr-credit { font-size: 10px; color: var(--t2); margin-top: 6px; font-weight: 400; letter-spacing: .3px; opacity: .5; }
 
   /* ── Cards ── */
@@ -166,6 +168,17 @@
   .btn-sm { padding: 10px 18px; font-size: 12px; background: var(--s2); color: var(--text); border: 1px solid var(--border); }
   .btn-sm:hover { background: var(--s3); border-color: var(--t2); color: #fff; }
 
+  .btn-resolve {
+    padding: 14px 20px; font-size: 13px;
+    background: linear-gradient(270deg, #4285f4, #ea4335, #fbbc04, #4285f4);
+    background-size: 300% 300%;
+    animation: btnShift 4s ease infinite;
+    color: #fff; border: none;
+    box-shadow: 0 0 20px rgba(66,133,244,.25);
+  }
+  .btn-resolve:hover:not(:disabled) { box-shadow: 0 0 32px rgba(66,133,244,.45); transform: scale(1.015); }
+  .btn-resolve:disabled { background: var(--s3); color: var(--muted); box-shadow: none; opacity: .5; animation: none; }
+
   .btn-cancel { padding: 10px 20px; font-size: 12px; background: rgba(255,59,92,.1); color: var(--red); border: 1px solid rgba(255,59,92,.2); }
   .btn-cancel:hover { background: var(--red); color: #000; box-shadow: 0 0 20px rgba(255,59,92,.3); }
 
@@ -180,6 +193,7 @@
   .src-badge.sp { background: #1DB954; color: #000; }
   .src-badge.dz { background: #A238FF; color: #fff; }
   .src-badge.mb { background: var(--purple); color: #fff; }
+  .src-badge.ai { background: linear-gradient(135deg, #4285f4, #ea4335); color: #fff; }
   .src-info { font-size: 12.5px; color: var(--t2); font-weight: 500; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
   .dot.on  { background: var(--green); box-shadow: 0 0 10px var(--green); animation: blink 1.8s ease infinite; }
@@ -382,28 +396,52 @@
         <span class="src-badge mb">MusicBrainz</span>
         <span class="src-info"><span class="dot on"></span>Fallback</span>
       </div>
+      <div class="src-item">
+        <span class="src-badge ai" id="aiBadge">AI</span>
+        <span class="src-info"><span class="dot" id="aiDot"></span><span id="aiTxt">No API key</span></span>
+      </div>
     </div>
     <hr class="div">
     <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;">Spotify Account 1</div>
     <div class="field">
       <label>Client ID</label>
-      <input type="text" id="clientId1" placeholder="Enter API Key..." autocomplete="off">
+      <input type="text" id="clientId1" placeholder="Enter API Key..." autocomplete="off" data-1p-ignore>
     </div>
     <div class="field">
       <label>Client Secret</label>
-      <input type="password" id="clientSecret1" placeholder="••••••••••••••••••••••••••••••••">
+      <input type="password" id="clientSecret1" placeholder="••••••••••••••••••••••••••••••••" data-1p-ignore>
     </div>
     <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin:16px 0 12px;">Spotify Account 2 <span style="opacity:.5;font-weight:400;">(optional)</span></div>
     <div class="field">
       <label>Client ID</label>
-      <input type="text" id="clientId2" placeholder="Enter API Key..." autocomplete="off">
+      <input type="text" id="clientId2" placeholder="Enter API Key..." autocomplete="off" data-1p-ignore>
     </div>
     <div class="field">
       <label>Client Secret</label>
-      <input type="password" id="clientSecret2" placeholder="••••••••••••••••••••••••••••••••">
+      <input type="password" id="clientSecret2" placeholder="••••••••••••••••••••••••••••••••" data-1p-ignore>
+    </div>
+    <hr class="div">
+    <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;">OpenAI <span style="opacity:.5;font-weight:400;">(for AI Resolve)</span></div>
+    <div class="field">
+      <label>OpenAI API Key</label>
+      <input type="password" id="openaiKey" placeholder="sk-..." autocomplete="off" data-1p-ignore>
+    </div>
+    <hr class="div">
+    <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;">Column Mapping <span style="opacity:.5;font-weight:400;">(Excel column letters)</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="field"><label>Duration</label><input type="text" id="colDuracion" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Title</label><input type="text" id="colTitulo" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Artist</label><input type="text" id="colInterpretes" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>ISRC (output)</label><input type="text" id="colIsrc" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Status (output)</label><input type="text" id="colStatus" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Found Title</label><input type="text" id="colFoundTitle" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Found Artist</label><input type="text" id="colFoundArtist" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Found Duration</label><input type="text" id="colFoundDuration" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>AI Cleaned Title</label><input type="text" id="colCleanedTitle" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>AI Cleaned Artist</label><input type="text" id="colCleanedArtist" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
     </div>
     <div class="save-row">
-      <button class="btn-sm" onclick="saveConfig()">Save Settings</button>
+      <button type="button" class="btn-sm" onclick="saveConfig()">Save Settings</button>
       <span class="save-ok" id="saveOk">&#10003; Saved</span>
     </div>
   </div>
@@ -412,7 +450,7 @@
     <div class="card-label">Source File</div>
     <div class="file-row">
       <div class="file-box" id="fileName">Browse or select Excel file</div>
-      <button class="btn-sm" onclick="browseFile()">Browse</button>
+      <button type="button" class="btn-sm" onclick="browseFile()">Browse</button>
     </div>
     <input type="hidden" id="filePath">
   </div>
@@ -431,10 +469,13 @@
 
   <div class="card">
     <div class="action-row">
-      <button class="btn-primary" id="fetchBtn" onclick="startFetch()">
-        Fetch ISRC Data
+      <button type="button" class="btn-primary" id="fetchBtn" onclick="startFetch()">
+        Fetch ISRC
       </button>
-      <button class="btn-cancel" id="cancelBtn" onclick="cancelFetch()" style="display:none">Stop</button>
+      <button type="button" class="btn-resolve" id="resolveBtn" onclick="startResolve()" title="AI-resolve failed tracks">
+        AI Resolve
+      </button>
+      <button type="button" class="btn-cancel" id="cancelBtn" onclick="cancelFetch()" style="display:none">Stop</button>
     </div>
 
     <div id="progressSection" style="display:none">
@@ -475,6 +516,10 @@
         </div>
       </div>
       <div class="filter-hint" id="filterHint"></div>
+      <div id="aiCostRow" style="display:none;margin-top:14px;background:var(--s2);border:1px solid var(--border);border-radius:14px;padding:14px 20px;display:none;flex-direction:column;align-items:center;gap:2px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);">AI Cost</div>
+        <div id="aiCostVal" style="font-size:28px;font-weight:800;letter-spacing:-1px;color:#00ff87;">$0.0000</div>
+      </div>
     </div>
   </div>
 
@@ -484,6 +529,11 @@
       <span class="log-head-right">R## = Excel row · click stat to filter</span>
     </div>
     <div id="log"></div>
+  </div>
+
+  <div style="text-align:center;padding:32px 0 0;font-size:10px;color:var(--muted);line-height:1.6;letter-spacing:.3px;">
+    This software is the property of Paulo Oliveira &amp; Uly.<br>
+    It may not be used for commercial purposes or distributed without prior written approval.
   </div>
 
 </div>
@@ -511,7 +561,21 @@ fetch('/api/config').then(r => r.json()).then(cfg => {
     document.getElementById('clientId1').value     = cfg.spotify_client_id     || '';
     document.getElementById('clientSecret1').value = cfg.spotify_client_secret || '';
   }
+  document.getElementById('openaiKey').value = cfg.openai_api_key || '';
+  const colDef = { duracion:'B', titulo:'C', interpretes:'D', isrc:'H', status:'P', found_title:'Q', found_artist:'R', found_duration:'S', cleaned_title:'T', cleaned_artist:'U' };
+  const colCfg = cfg.columns || {};
+  document.getElementById('colDuracion').value       = (colCfg.duracion        || colDef.duracion).toUpperCase();
+  document.getElementById('colTitulo').value         = (colCfg.titulo          || colDef.titulo).toUpperCase();
+  document.getElementById('colInterpretes').value    = (colCfg.interpretes     || colDef.interpretes).toUpperCase();
+  document.getElementById('colIsrc').value           = (colCfg.isrc            || colDef.isrc).toUpperCase();
+  document.getElementById('colStatus').value         = (colCfg.status          || colDef.status).toUpperCase();
+  document.getElementById('colFoundTitle').value     = (colCfg.found_title     || colDef.found_title).toUpperCase();
+  document.getElementById('colFoundArtist').value    = (colCfg.found_artist    || colDef.found_artist).toUpperCase();
+  document.getElementById('colFoundDuration').value  = (colCfg.found_duration  || colDef.found_duration).toUpperCase();
+  document.getElementById('colCleanedTitle').value   = (colCfg.cleaned_title   || colDef.cleaned_title).toUpperCase();
+  document.getElementById('colCleanedArtist').value  = (colCfg.cleaned_artist  || colDef.cleaned_artist).toUpperCase();
   updateSpotifyDot();
+  updateAiDot();
 });
 
 function updateSpotifyDot() {
@@ -529,6 +593,21 @@ function updateSpotifyDot() {
   }
 }
 
+function updateAiDot() {
+  const key = document.getElementById('openaiKey').value.trim();
+  const dot = document.getElementById('aiDot');
+  const txt = document.getElementById('aiTxt');
+  const badge = document.getElementById('aiBadge');
+  badge.textContent = 'OpenAI';
+  if (key) {
+    dot.className   = 'dot on';
+    txt.textContent = 'Ready \u00b7 AI Resolve';
+  } else {
+    dot.className   = 'dot off';
+    txt.textContent = 'No API key';
+  }
+}
+
 function saveConfig() {
   const accounts = [];
   const id1 = document.getElementById('clientId1').value.trim();
@@ -537,11 +616,27 @@ function saveConfig() {
   const id2 = document.getElementById('clientId2').value.trim();
   const sec2 = document.getElementById('clientSecret2').value.trim();
   if (id2 && sec2) accounts.push({ client_id: id2, client_secret: sec2 });
+  const openaiKey = document.getElementById('openaiKey').value.trim();
+  const columns = {
+    duracion:       document.getElementById('colDuracion').value.trim().toUpperCase()      || 'B',
+    titulo:         document.getElementById('colTitulo').value.trim().toUpperCase()        || 'C',
+    interpretes:    document.getElementById('colInterpretes').value.trim().toUpperCase()   || 'D',
+    isrc:           document.getElementById('colIsrc').value.trim().toUpperCase()          || 'H',
+    status:         document.getElementById('colStatus').value.trim().toUpperCase()        || 'P',
+    found_title:    document.getElementById('colFoundTitle').value.trim().toUpperCase()    || 'Q',
+    found_artist:   document.getElementById('colFoundArtist').value.trim().toUpperCase()   || 'R',
+    found_duration: document.getElementById('colFoundDuration').value.trim().toUpperCase() || 'S',
+    cleaned_title:  document.getElementById('colCleanedTitle').value.trim().toUpperCase()  || 'T',
+    cleaned_artist: document.getElementById('colCleanedArtist').value.trim().toUpperCase() || 'U',
+  };
   fetch('/api/config', { method: 'POST', body: JSON.stringify({
     spotify_accounts: accounts,
     source: 'deezer',
+    openai_api_key: openaiKey,
+    columns,
   })}).then(() => {
     updateSpotifyDot();
+    updateAiDot();
     const el = document.getElementById('saveOk');
     el.classList.add('show');
     setTimeout(() => el.classList.remove('show'), 2000);
@@ -606,9 +701,11 @@ function logClass(l) {
   if (l.includes('SKIPPED'))                                    return 'ls';
   if (l.includes('duration mismatch') || l.includes('WARNING')) return 'lm';
   if (l.includes('->'))                                         return 'lf';
-  if (l.startsWith('Done!') || l.startsWith('Results saved'))   return 'ld';
+  if (l.startsWith('Done!') || l.startsWith('Results saved') || l.startsWith('[AI Resolve] Done!') || l.startsWith('AI Resolve done!')) return 'ld';
   if (l.startsWith('Error') || l.startsWith('ERROR'))           return 'ln';
-  if (l.startsWith('Processing') || l.startsWith('Warning'))    return 'li';
+  if (l.includes('no candidates'))                              return 'ln';
+  if (l.includes('[AI Resolve]') && l.includes('\u2192'))       return 'lf';
+  if (l.startsWith('Processing') || l.startsWith('Warning') || l.startsWith('[AI Resolve]')) return 'li';
   return '';
 }
 
@@ -626,11 +723,13 @@ function renderLog(lines) {
     : lines;
 
   const el = document.getElementById('log');
+  // Only auto-scroll if user is near the bottom (within 60px)
+  const wasAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
   el.innerHTML = filtered.map(l => {
     const c = logClass(l);
     return c ? `<span class="${c}">${esc(l)}</span>` : esc(l);
   }).join('\n');
-  el.scrollTop = el.scrollHeight;
+  if (wasAtBottom) el.scrollTop = el.scrollHeight;
 }
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
@@ -642,6 +741,8 @@ function startFetch() {
   const rt   = mode === 'range' ? parseInt(document.getElementById('rowTo').value)   : -1;
 
   document.getElementById('fetchBtn').disabled        = true;
+
+  document.getElementById('resolveBtn').disabled      = true;
   document.getElementById('cancelBtn').style.display  = 'block';
   document.getElementById('progressSection').style.display = 'block';
   document.getElementById('wave').classList.add('live');
@@ -653,6 +754,7 @@ function startFetch() {
   lastLog             = [];
   discoBallTriggered  = false;
   ['sFound','sNF','sWarn','sSkip'].forEach(id => document.getElementById(id).textContent = '0');
+  document.getElementById('aiCostRow').style.display = 'none';
   document.getElementById('log').innerHTML = '';
   setRing(0);
 
@@ -661,6 +763,41 @@ function startFetch() {
 }
 
 function cancelFetch() { fetch('/api/cancel', { method: 'POST' }); }
+
+function hasAiKey() {
+  return !!document.getElementById('openaiKey').value.trim();
+}
+
+
+
+function startResolve() {
+  const fp   = document.getElementById('filePath').value.trim();
+  if (!fp) { alert('Please select a file first.'); return; }
+  if (!hasAiKey()) { alert('Please enter an OpenAI API key in settings and save.'); return; }
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const rf   = mode === 'range' ? parseInt(document.getElementById('rowFrom').value) : 2;
+  const rt   = mode === 'range' ? parseInt(document.getElementById('rowTo').value)   : -1;
+
+  document.getElementById('fetchBtn').disabled        = true;
+  document.getElementById('resolveBtn').disabled      = true;
+  document.getElementById('cancelBtn').style.display  = 'block';
+  document.getElementById('progressSection').style.display = 'block';
+  document.getElementById('wave').classList.add('live');
+  document.getElementById('npLabel').textContent = 'AI Resolve';
+  document.getElementById('npTrack').textContent = 'Scanning for failed tracks...';
+  document.getElementById('filterHint').textContent   = '';
+  document.querySelectorAll('.stat').forEach(s => s.classList.remove('active'));
+  activeFilter        = null;
+  lastLog             = [];
+  discoBallTriggered  = false;
+  ['sFound','sNF','sWarn','sSkip'].forEach(id => document.getElementById(id).textContent = '0');
+  document.getElementById('aiCostRow').style.display = 'none';
+  document.getElementById('log').innerHTML = '';
+  setRing(0);
+
+  fetch('/api/resolve', { method: 'POST', body: JSON.stringify({ file: fp, row_start: rf, row_end: rt }) });
+  poll();
+}
 
 // ── Poll ──────────────────────────────────────────────────────────────────
 let T;
@@ -676,8 +813,12 @@ function poll() {
     document.getElementById('sWarn').textContent     = s.warnings  || 0;
     document.getElementById('sSkip').textContent     = s.skipped   || 0;
     if (s.current) document.getElementById('npTrack').textContent = s.current;
+    if (s.ai_cost > 0) {
+      document.getElementById('aiCostRow').style.display = 'flex';
+      document.getElementById('aiCostVal').textContent   = '$' + s.ai_cost.toFixed(4);
+    }
 
-    if (s.done && s.total > 0 && !discoBallTriggered) {
+    if (s.done && s.total > 0 && !s.cancel && !discoBallTriggered) {
       discoBallTriggered = true;
       triggerDiscoBall();
     }
@@ -687,7 +828,8 @@ function poll() {
     if (!s.done) {
       T = setTimeout(poll, 500);
     } else {
-      document.getElementById('fetchBtn').disabled       = false;
+      document.getElementById('fetchBtn').disabled        = false;
+      document.getElementById('resolveBtn').disabled     = false;
       document.getElementById('cancelBtn').style.display = 'none';
       document.getElementById('wave').classList.remove('live');
       document.getElementById('npLabel').textContent = 'Sync Complete';

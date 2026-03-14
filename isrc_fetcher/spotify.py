@@ -6,6 +6,8 @@ import time
 import base64
 import requests
 
+from isrc_fetcher import cancel
+
 
 class SpotifyClient:
     """Fetches ISRC codes from Spotify's catalog."""
@@ -55,14 +57,14 @@ class SpotifyClient:
                     f"WARNING: Spotify auth failed: {e}. "
                     f"Retrying in {wait}s (attempt {attempt + 1}/3)"
                 )
-                time.sleep(wait)
+                cancel.sleep(wait)
         raise requests.RequestException(f"Spotify auth failed after 3 attempts: {last_err}")
 
     def _rate_limit(self):
         """Enforce minimum interval between requests."""
         elapsed = time.time() - self._last_request_time
         if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
+            cancel.sleep(self._min_interval - elapsed)
 
     def _search(self, query: str, limit: int = 10) -> dict:
         """Execute a Spotify search query with rate limiting and retry."""
@@ -103,7 +105,7 @@ class SpotifyClient:
                     raise requests.RequestException(
                         f"Spotify rate limit exceeded after {attempt + 1} attempts"
                     )
-                time.sleep(wait)
+                cancel.sleep(wait)
                 continue
             if resp.status_code != 200:
                 self._log(f"WARNING: Spotify returned HTTP {resp.status_code}")

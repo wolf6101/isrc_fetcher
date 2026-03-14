@@ -8,6 +8,8 @@ import re
 import time
 import requests
 
+from isrc_fetcher import cancel
+
 
 class DeezerClient:
     """Fetches ISRC codes from Deezer's catalog."""
@@ -23,7 +25,7 @@ class DeezerClient:
     def _rate_limit(self):
         elapsed = time.time() - self._last_request_time
         if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
+            cancel.sleep(self._min_interval - elapsed)
 
     def _search(self, query: str, limit: int = 10) -> dict:
         """Execute a Deezer search query with rate limiting and retry."""
@@ -39,7 +41,7 @@ class DeezerClient:
                 self._log(f"WARNING: Deezer connection error: {e}. Attempt {attempt + 1}/4")
                 if attempt >= 3:
                     raise
-                time.sleep(2 * (attempt + 1))
+                cancel.sleep(2 * (attempt + 1))
                 continue
             self._last_request_time = time.time()
 
@@ -58,7 +60,7 @@ class DeezerClient:
                     if attempt >= 3:
                         self._log("WARNING: Deezer quota — giving up after 4 attempts")
                         raise requests.RequestException(f"Deezer quota exceeded: {error_msg}")
-                    time.sleep(wait)
+                    cancel.sleep(wait)
                     continue
                 self._log(f"WARNING: Deezer API error: {error_msg} (code {error_code})")
                 raise requests.RequestException(f"Deezer error: {error_msg}")

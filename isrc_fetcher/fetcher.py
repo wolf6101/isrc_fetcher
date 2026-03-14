@@ -16,9 +16,11 @@ class ISRCFetcher:
         spotify_accounts: list[dict] | None = None,
         source: str = "deezer",
         log=None,
+        verbose_log=None,
     ):
         self.source = source
         self._log = log or (lambda msg: None)
+        self._vlog = verbose_log or self._log
         self.deezer = DeezerClient(log=log)
         self.musicbrainz = MusicBrainzClient(log=log)
         self.spotify = SpotifyPool(spotify_accounts or [], log=log) if spotify_accounts else None
@@ -63,10 +65,11 @@ class ISRCFetcher:
         for name, client in chain:
             if client is None:
                 continue
+            self._vlog(f"  >> trying {name}...")
             results = client.search_isrc(title, artist, duration_seconds)
             if results:
                 if tried:
-                    self._log(f"  >> not found on: {', '.join(tried)}")
+                    self._vlog(f"  >> not found on: {', '.join(tried)}")
                 # Include Spotify account label if applicable
                 if name == "Spotify" and self.spotify and self.spotify.last_account:
                     name = f"Spotify {self.spotify.last_account}"
@@ -74,7 +77,7 @@ class ISRCFetcher:
             tried.append(name)
 
         if tried:
-            self._log(f"  >> not found on: {', '.join(tried)}")
+            self._vlog(f"  >> not found on: {', '.join(tried)}")
         return [], ""
 
     def fetch(
