@@ -791,7 +791,8 @@ function startResolve() {
   lastLog             = [];
   discoBallTriggered  = false;
   ['sFound','sNF','sWarn','sSkip'].forEach(id => document.getElementById(id).textContent = '0');
-  document.getElementById('aiCostRow').style.display = 'none';
+  document.getElementById('aiCostRow').style.display = 'flex';
+  document.getElementById('aiCostVal').textContent = '$0.0000';
   document.getElementById('log').innerHTML = '';
   setRing(0);
 
@@ -813,9 +814,8 @@ function poll() {
     document.getElementById('sWarn').textContent     = s.warnings  || 0;
     document.getElementById('sSkip').textContent     = s.skipped   || 0;
     if (s.current) document.getElementById('npTrack').textContent = s.current;
-    if (s.ai_cost > 0) {
-      document.getElementById('aiCostRow').style.display = 'flex';
-      document.getElementById('aiCostVal').textContent   = '$' + s.ai_cost.toFixed(4);
+    if (document.getElementById('aiCostRow').style.display === 'flex') {
+      document.getElementById('aiCostVal').textContent = '$' + (s.ai_cost || 0).toFixed(4);
     }
 
     if (s.done && s.total > 0 && !s.cancel && !discoBallTriggered) {

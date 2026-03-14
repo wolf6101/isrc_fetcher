@@ -222,7 +222,7 @@ def _safe_save(wb, file_path: str) -> None:
 # AI helpers
 # ---------------------------------------------------------------------------
 
-CLEAN_BATCH_SIZE = 20  # tracks per AI clean call
+CHUNK_SIZE = 20  # tracks per full cycle: queries → search → eval → save
 
 
 def _get_ai_key(cfg: dict) -> str:
@@ -295,94 +295,118 @@ def run_resolve(file_path: str, row_start: int = 2, row_end: int = -1) -> None:
         job_state["total"] = len(tracks_to_resolve)
         _log(f"Found {len(tracks_to_resolve)} tracks to resolve in {os.path.basename(file_path)}")
 
-        # Phase 0: AI generates search queries + corrected metadata
         from isrc_fetcher.ai_client import create_ai_client
         ai = create_ai_client(ai_key, log=_log)
-        _log("[AI Resolve] Phase 0: Generating search queries with OpenAI...")
-        job_state["current"] = "AI generating search queries..."
 
-        query_map = {}  # row -> {"title", "artist", "queries"}
-        for start in range(0, len(tracks_to_resolve), CLEAN_BATCH_SIZE):
-            if job_state["cancel"]:
-                break
-            chunk = tracks_to_resolve[start:start + CLEAN_BATCH_SIZE]
-            batch_input = [
-                {"index": t["row"], "title": t["title"], "artist": t["artist"]}
-                for t in chunk
-            ]
-            results = ai.clean_batch(batch_input)
-            job_state["ai_cost"] = ai.cost_usd + resolver.ai.cost_usd
-            for r in results:
-                query_map[r["index"]] = r
-                if r.get("queries"):
-                    queries_str = " | ".join(r["queries"])
-                    _log(f"[AI] R{r['index']} queries: {queries_str}")
-
-        # Write cleaned values to Excel columns T/U and attach queries to tracks
-        corrected_count = 0
-        for t in tracks_to_resolve:
-            row = t["row"]
-            if row in query_map:
-                qr = query_map[row]
-                # Store corrected metadata in Excel
-                if qr.get("changed"):
-                    ws.cell(row=row, column=cols["cleaned_title"]).value = qr["title"]
-                    ws.cell(row=row, column=cols["cleaned_artist"]).value = qr["artist"]
-                    t["title"] = qr["title"]
-                    t["artist"] = qr["artist"]
-                    corrected_count += 1
-                # Attach AI-generated queries for the search phase
-                t["queries"] = qr.get("queries", [])
-
-        if corrected_count:
-            _log(f"[AI] Corrected {corrected_count} titles/artists, originals preserved")
-        _log(f"[AI] Search queries ready for {len(query_map)} tracks")
-
-        # Write column headers for cleaned columns
+        # Write column headers for cleaned columns once
         if ws.cell(row=1, column=cols["cleaned_title"]).value != "AI_CLEANED_TITLE":
             ws.cell(row=1, column=cols["cleaned_title"]).value = "AI_CLEANED_TITLE"
             ws.cell(row=1, column=cols["cleaned_artist"]).value = "AI_CLEANED_ARTIST"
 
-        # Phase 1+2: Relaxed search + AI evaluation
-        def on_progress(phase, current, total):
-            if phase == "search":
-                job_state["progress"] = current
-                job_state["current"] = f"Searching ({current}/{total})"
-            elif phase == "ai":
-                job_state["current"] = f"AI evaluating ({current}/{total})"
+        total_resolved = 0
+        total_chunks = (len(tracks_to_resolve) + CHUNK_SIZE - 1) // CHUNK_SIZE
 
-        resolved = resolver.resolve(
-            tracks_to_resolve,
-            on_progress=on_progress,
-            is_cancelled=lambda: job_state["cancel"],
-        )
+        for chunk_idx in range(0, len(tracks_to_resolve), CHUNK_SIZE):
+            if job_state["cancel"]:
+                break
 
-        # Write resolved tracks back to Excel
-        resolved_count = 0
-        for r in resolved:
-            row = r["row"]
-            ws.cell(row=row, column=cols["isrc"]).value = r["isrc"]
-            confidence = r.get("confidence", "")
-            ws.cell(row=row, column=cols["status"]).value = f"AI resolved ({confidence})"
-            ws.cell(row=row, column=cols["found_title"]).value = r.get("name", "")
-            ws.cell(row=row, column=cols["found_artist"]).value = r.get("artist", "")
-            dur_ms = r.get("duration_ms", 0)
-            if dur_ms:
-                ws.cell(row=row, column=cols["found_duration"]).value = (
-                    f"{dur_ms // 1000 // 60}:{dur_ms // 1000 % 60:02d}"
-                )
-            resolved_count += 1
+            chunk = tracks_to_resolve[chunk_idx:chunk_idx + CHUNK_SIZE]
+            chunk_num = chunk_idx // CHUNK_SIZE + 1
+            _log(f"[AI Resolve] ── Chunk {chunk_num}/{total_chunks} ({len(chunk)} tracks) ──")
 
-        job_state["found"] = resolved_count
-        job_state["not_found"] = len(tracks_to_resolve) - resolved_count
+            # Phase A: AI generates search queries for this chunk
+            job_state["current"] = f"Chunk {chunk_num}/{total_chunks}: generating queries..."
+            batch_input = [{"index": t["row"], "title": t["title"], "artist": t["artist"]} for t in chunk]
+            query_results = ai.clean_batch(batch_input)
+            query_map = {r["index"]: r for r in query_results}
+
+            for t in chunk:
+                qr = query_map.get(t["row"], {})
+                if qr.get("changed"):
+                    ws.cell(row=t["row"], column=cols["cleaned_title"]).value = qr["title"]
+                    ws.cell(row=t["row"], column=cols["cleaned_artist"]).value = qr["artist"]
+                    t["title"] = qr["title"]
+                    t["artist"] = qr["artist"]
+                t["queries"] = qr.get("queries", [])
+                if t["queries"]:
+                    _log(f"[AI] R{t['row']} queries: {' | '.join(t['queries'])}")
+
+            job_state["ai_cost"] = ai.cost_usd
+
+            # Phase B: API search for candidates
+            job_state["current"] = f"Chunk {chunk_num}/{total_chunks}: searching APIs..."
+            track_candidates = []
+            for i, track in enumerate(chunk):
+                if job_state["cancel"]:
+                    break
+                job_state["progress"] = chunk_idx + i + 1
+                n = chunk_idx + i + 1
+
+                if track.get("queries"):
+                    candidates = resolver._search_with_queries(track["queries"])
+                else:
+                    candidates = resolver._fallback_search(track["title"], track["artist"])
+
+                if candidates:
+                    track_candidates.append({"track": track, "candidates": candidates})
+                    _log(f"[AI Resolve] [{n}/{len(tracks_to_resolve)}] {track['artist']} - {track['title']} → {len(candidates)} candidates")
+                else:
+                    _log(f"[AI Resolve] [{n}/{len(tracks_to_resolve)}] {track['artist']} - {track['title']} → no candidates")
+
+            if not track_candidates:
+                _log(f"[AI Resolve] Chunk {chunk_num}: no candidates found, skipping eval")
+                continue
+
+            # Phase C: AI evaluation
+            job_state["current"] = f"Chunk {chunk_num}/{total_chunks}: AI evaluating..."
+            eval_input = [
+                {
+                    "index": item["track"]["row"],
+                    "title": item["track"]["title"],
+                    "artist": item["track"]["artist"],
+                    "duration": item["track"].get("duration"),
+                    "candidates": item["candidates"],
+                }
+                for item in track_candidates
+            ]
+            decisions = ai.evaluate_batch(eval_input)
+            job_state["ai_cost"] = ai.cost_usd
+
+            chunk_resolved = 0
+            for decision in decisions:
+                if decision["pick"] is None:
+                    continue
+                item = next((c for c in track_candidates if c["track"]["row"] == decision["index"]), None)
+                if not item:
+                    continue
+                pick_idx = decision["pick"]
+                if pick_idx >= len(item["candidates"]):
+                    continue
+                candidate = item["candidates"][pick_idx]
+                row = decision["index"]
+                ws.cell(row=row, column=cols["isrc"]).value = candidate["isrc"]
+                ws.cell(row=row, column=cols["status"]).value = f"AI resolved ({decision['confidence']})"
+                ws.cell(row=row, column=cols["found_title"]).value = candidate.get("name", "")
+                ws.cell(row=row, column=cols["found_artist"]).value = candidate.get("artist", "")
+                dur_ms = candidate.get("duration_ms", 0)
+                if dur_ms:
+                    ws.cell(row=row, column=cols["found_duration"]).value = (
+                        f"{dur_ms // 1000 // 60}:{dur_ms // 1000 % 60:02d}"
+                    )
+                chunk_resolved += 1
+                total_resolved += 1
+                _log(f"[AI Resolve] R{row}: → {candidate['isrc']} ({decision['confidence']}) — {decision['reason']}")
+
+            # Save after every chunk
+            _safe_save(wb, file_path)
+            job_state["found"] = total_resolved
+            job_state["not_found"] = (chunk_idx + len(chunk)) - total_resolved
+            _log(f"[AI Resolve] Chunk {chunk_num} saved — {chunk_resolved} resolved. Running total: {total_resolved}/{len(tracks_to_resolve)}")
+
         job_state["progress"] = len(tracks_to_resolve)
-        total_cost = ai.cost_usd + resolver.ai.cost_usd
-        job_state["ai_cost"] = total_cost
-
-        _safe_save(wb, file_path)
         _log("")
-        _log(f"AI Resolve done! Resolved: {resolved_count} / {len(tracks_to_resolve)}")
-        _log(f"AI cost: ${total_cost:.4f} ({ai.tokens_in + resolver.ai.tokens_in} in / {ai.tokens_out + resolver.ai.tokens_out} out tokens)")
+        _log(f"AI Resolve done! Resolved: {total_resolved} / {len(tracks_to_resolve)}")
+        _log(f"AI cost: ${ai.cost_usd:.4f} ({ai.tokens_in} in / {ai.tokens_out} out tokens)")
         _log(f"Results saved to {os.path.basename(file_path)}")
 
     except cancel_module.CancelledError:
