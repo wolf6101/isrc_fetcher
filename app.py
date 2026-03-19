@@ -22,6 +22,7 @@ from isrc_fetcher.columns import get_cols, DEFAULT_COLUMNS
 from isrc_fetcher.config import load_config, save_config
 from isrc_fetcher.fetcher import ISRCFetcher
 from isrc_fetcher.resolver import TrackResolver
+from isrc_fetcher.validator import ISRCValidator
 from isrc_fetcher.ui import HTML_PAGE
 from isrc_fetcher import cancel as cancel_module
 
@@ -419,6 +420,121 @@ def run_resolve(file_path: str, row_start: int = 2, row_end: int = -1) -> None:
 
 
 # ---------------------------------------------------------------------------
+# ISRC Validate worker
+# ---------------------------------------------------------------------------
+
+def run_validate(file_path: str, row_start: int, row_end: int) -> None:
+    """Validate existing ISRC codes by looking them up and comparing metadata."""
+    cancel_module.reset()
+    with _lock:
+        job_state.update(
+            running=True, cancel=False, progress=0, done=False,
+            found=0, not_found=0, warnings=0, skipped=0, current="",
+        )
+        _log_buffer.clear()
+
+    try:
+        cfg = load_config()
+        cols = get_cols(cfg)
+        accounts = cfg.get("spotify_accounts", [])
+        if not accounts and cfg.get("spotify_client_id"):
+            accounts = [{"client_id": cfg["spotify_client_id"],
+                         "client_secret": cfg.get("spotify_client_secret", "")}]
+        validator = ISRCValidator(spotify_accounts=accounts, log=_log)
+
+        wb = openpyxl.load_workbook(file_path)
+        ws = wb.active
+
+        # Write column headers on first run
+        if ws.cell(row=1, column=cols["val_status"]).value != "VAL_STATUS":
+            ws.cell(row=1, column=cols["val_status"]).value         = "VAL_STATUS"
+            ws.cell(row=1, column=cols["val_found_title"]).value    = "VAL_FOUND_TITLE"
+            ws.cell(row=1, column=cols["val_found_artist"]).value   = "VAL_FOUND_ARTIST"
+            ws.cell(row=1, column=cols["val_found_duration"]).value = "VAL_FOUND_DURATION"
+
+        actual_end = ws.max_row if row_end == -1 else min(row_end, ws.max_row)
+        rows = list(range(row_start, actual_end + 1))
+        job_state["total"] = len(rows)
+        _log(f"Validating {len(rows)} rows from {os.path.basename(file_path)}...")
+
+        valid = not_found = mismatches = skipped = 0
+
+        for i, row in enumerate(rows, 1):
+            if job_state["cancel"]:
+                _log("Cancelled by user.")
+                _safe_save(wb, file_path)
+                _log("Partial results saved.")
+                break
+
+            isrc          = ws.cell(row=row, column=cols["isrc"]).value
+            title         = ws.cell(row=row, column=cols["titulo"]).value
+            artist        = ws.cell(row=row, column=cols["interpretes"]).value
+            duration_raw  = ws.cell(row=row, column=cols["duracion"]).value
+            existing_val  = ws.cell(row=row, column=cols["val_status"]).value
+            job_state["progress"] = i
+
+            if not title or not artist:
+                continue
+
+            if not isrc or not str(isrc).strip():
+                skipped += 1
+                job_state["skipped"] = skipped
+                _log(f"[{i}/{len(rows)}] [R{row}] {artist} - {title} -> SKIPPED (no ISRC)")
+                continue
+
+            if existing_val and str(existing_val).strip():
+                skipped += 1
+                job_state["skipped"] = skipped
+                _log(f"[{i}/{len(rows)}] [R{row}] {artist} - {title} -> SKIPPED (already validated: {existing_val})")
+                continue
+
+            isrc   = str(isrc).strip()
+            title  = str(title).strip()
+            artist = str(artist).strip()
+            job_state["current"] = f"{artist} — {title}"
+
+            result = validator.validate(isrc, title, artist, _parse_duration(duration_raw))
+            status = result["status"]
+
+            ws.cell(row=row, column=cols["val_status"]).value         = status
+            ws.cell(row=row, column=cols["val_found_title"]).value    = result["found_title"]
+            ws.cell(row=row, column=cols["val_found_artist"]).value   = result["found_artist"]
+            ws.cell(row=row, column=cols["val_found_duration"]).value = result["found_duration"]
+
+            src_tag = f"[{result.get('source', '?')}]"
+            if status == "Valid":
+                valid += 1
+                job_state["found"] = valid
+                _log(f"[{i}/{len(rows)}] [R{row}] {src_tag} {artist} - {title} -> VALID ({isrc})")
+            elif status == "ISRC not found":
+                not_found += 1
+                job_state["not_found"] = not_found
+                _log(f"[{i}/{len(rows)}] [R{row}] {artist} - {title} -> NOT FOUND ({isrc})")
+            else:
+                mismatches += 1
+                job_state["warnings"] = mismatches
+                _log(f"[{i}/{len(rows)}] [R{row}] {src_tag} {artist} - {title} -> {status} ({isrc})")
+
+            if i % 5 == 0:
+                _safe_save(wb, file_path)
+
+        else:
+            _safe_save(wb, file_path)
+
+        _log("")
+        _log(f"Done! Valid: {valid} | Not found: {not_found} | Mismatches: {mismatches} | Skipped: {skipped}")
+        _log(f"Results saved to {os.path.basename(file_path)}")
+
+    except cancel_module.CancelledError:
+        _log("Stopped by user.")
+    except Exception as e:
+        _log(f"ERROR: {e}")
+    finally:
+        job_state["running"] = False
+        job_state["done"] = True
+
+
+# ---------------------------------------------------------------------------
 # Native file dialog
 # ---------------------------------------------------------------------------
 
@@ -540,6 +656,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _worker_thread = threading.Thread(
                 target=run_resolve,
+                args=(data["file"], data.get("row_start", 2), data.get("row_end", -1)),
+            )
+            _worker_thread.start()
+            self._json({"ok": True})
+
+        elif self.path == "/api/validate":
+            if job_state["running"]:
+                self._json({"error": "Already running"}, 409)
+                return
+            try:
+                data = json.loads(body)
+            except (json.JSONDecodeError, ValueError) as e:
+                self._json({"error": f"Invalid JSON: {e}"}, 400)
+                return
+            _worker_thread = threading.Thread(
+                target=run_validate,
                 args=(data["file"], data.get("row_start", 2), data.get("row_end", -1)),
             )
             _worker_thread.start()

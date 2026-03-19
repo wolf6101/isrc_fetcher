@@ -22,6 +22,11 @@ DEFAULT_COLUMNS = {
     "found_duration":   "S",   # Found duration output
     "cleaned_title":    "T",   # AI-cleaned title
     "cleaned_artist":   "U",   # AI-cleaned artist
+    # Validation-specific output columns
+    "val_status":       "V",   # Validation status
+    "val_found_title":  "W",   # Validation found title
+    "val_found_artist": "X",   # Validation found artist
+    "val_found_duration": "Y", # Validation found duration
 }
 
 

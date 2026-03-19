@@ -182,6 +182,18 @@
   .btn-cancel { padding: 10px 20px; font-size: 12px; background: rgba(255,59,92,.1); color: var(--red); border: 1px solid rgba(255,59,92,.2); }
   .btn-cancel:hover { background: var(--red); color: #000; box-shadow: 0 0 20px rgba(255,59,92,.3); }
 
+  .btn-validate {
+    padding: 14px 20px; font-size: 13px; width: 100%;
+    background: linear-gradient(270deg, #ff9f0a, #ff6b35, #ff9f0a);
+    background-size: 300% 300%;
+    animation: btnShift 4s ease infinite;
+    color: #000; border: none;
+    box-shadow: 0 0 20px rgba(255,159,10,.25);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .btn-validate:hover:not(:disabled) { box-shadow: 0 0 32px rgba(255,159,10,.5); transform: scale(1.015); }
+  .btn-validate:disabled { background: var(--s3); color: var(--muted); box-shadow: none; opacity: .5; animation: none; }
+
   /* ── Sources ── */
   .src-list { display: flex; flex-direction: column; gap: 10px; }
   .src-item {
@@ -440,6 +452,13 @@
       <div class="field"><label>AI Cleaned Title</label><input type="text" id="colCleanedTitle" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
       <div class="field"><label>AI Cleaned Artist</label><input type="text" id="colCleanedArtist" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
     </div>
+    <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin:16px 0 12px;">Validate ISRC — Output Columns</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="field"><label>Val. Status</label><input type="text" id="colValStatus" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Val. Found Title</label><input type="text" id="colValFoundTitle" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Val. Found Artist</label><input type="text" id="colValFoundArtist" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+      <div class="field"><label>Val. Found Duration</label><input type="text" id="colValFoundDuration" maxlength="3" style="text-transform:uppercase" data-1p-ignore></div>
+    </div>
     <div class="save-row">
       <button type="button" class="btn-sm" onclick="saveConfig()">Save Settings</button>
       <span class="save-ok" id="saveOk">&#10003; Saved</span>
@@ -477,6 +496,10 @@
       </button>
       <button type="button" class="btn-cancel" id="cancelBtn" onclick="cancelFetch()" style="display:none">Stop</button>
     </div>
+    <hr class="div" style="margin:14px 0">
+    <button type="button" class="btn-validate" id="validateBtn" onclick="startValidate()" title="Validate existing ISRC codes against music databases">
+      &#10003;&nbsp; Validate ISRC
+    </button>
 
     <div id="progressSection" style="display:none">
       <div class="ring-wrap">
@@ -562,18 +585,22 @@ fetch('/api/config').then(r => r.json()).then(cfg => {
     document.getElementById('clientSecret1').value = cfg.spotify_client_secret || '';
   }
   document.getElementById('openaiKey').value = cfg.openai_api_key || '';
-  const colDef = { duracion:'B', titulo:'C', interpretes:'D', isrc:'H', status:'P', found_title:'Q', found_artist:'R', found_duration:'S', cleaned_title:'T', cleaned_artist:'U' };
+  const colDef = { duracion:'B', titulo:'C', interpretes:'D', isrc:'H', status:'P', found_title:'Q', found_artist:'R', found_duration:'S', cleaned_title:'T', cleaned_artist:'U', val_status:'V', val_found_title:'W', val_found_artist:'X', val_found_duration:'Y' };
   const colCfg = cfg.columns || {};
-  document.getElementById('colDuracion').value       = (colCfg.duracion        || colDef.duracion).toUpperCase();
-  document.getElementById('colTitulo').value         = (colCfg.titulo          || colDef.titulo).toUpperCase();
-  document.getElementById('colInterpretes').value    = (colCfg.interpretes     || colDef.interpretes).toUpperCase();
-  document.getElementById('colIsrc').value           = (colCfg.isrc            || colDef.isrc).toUpperCase();
-  document.getElementById('colStatus').value         = (colCfg.status          || colDef.status).toUpperCase();
-  document.getElementById('colFoundTitle').value     = (colCfg.found_title     || colDef.found_title).toUpperCase();
-  document.getElementById('colFoundArtist').value    = (colCfg.found_artist    || colDef.found_artist).toUpperCase();
-  document.getElementById('colFoundDuration').value  = (colCfg.found_duration  || colDef.found_duration).toUpperCase();
-  document.getElementById('colCleanedTitle').value   = (colCfg.cleaned_title   || colDef.cleaned_title).toUpperCase();
-  document.getElementById('colCleanedArtist').value  = (colCfg.cleaned_artist  || colDef.cleaned_artist).toUpperCase();
+  document.getElementById('colDuracion').value          = (colCfg.duracion          || colDef.duracion).toUpperCase();
+  document.getElementById('colTitulo').value            = (colCfg.titulo            || colDef.titulo).toUpperCase();
+  document.getElementById('colInterpretes').value       = (colCfg.interpretes       || colDef.interpretes).toUpperCase();
+  document.getElementById('colIsrc').value              = (colCfg.isrc              || colDef.isrc).toUpperCase();
+  document.getElementById('colStatus').value            = (colCfg.status            || colDef.status).toUpperCase();
+  document.getElementById('colFoundTitle').value        = (colCfg.found_title       || colDef.found_title).toUpperCase();
+  document.getElementById('colFoundArtist').value       = (colCfg.found_artist      || colDef.found_artist).toUpperCase();
+  document.getElementById('colFoundDuration').value     = (colCfg.found_duration    || colDef.found_duration).toUpperCase();
+  document.getElementById('colCleanedTitle').value      = (colCfg.cleaned_title     || colDef.cleaned_title).toUpperCase();
+  document.getElementById('colCleanedArtist').value     = (colCfg.cleaned_artist    || colDef.cleaned_artist).toUpperCase();
+  document.getElementById('colValStatus').value         = (colCfg.val_status        || colDef.val_status).toUpperCase();
+  document.getElementById('colValFoundTitle').value     = (colCfg.val_found_title   || colDef.val_found_title).toUpperCase();
+  document.getElementById('colValFoundArtist').value    = (colCfg.val_found_artist  || colDef.val_found_artist).toUpperCase();
+  document.getElementById('colValFoundDuration').value  = (colCfg.val_found_duration|| colDef.val_found_duration).toUpperCase();
   updateSpotifyDot();
   updateAiDot();
 });
@@ -626,8 +653,12 @@ function saveConfig() {
     found_title:    document.getElementById('colFoundTitle').value.trim().toUpperCase()    || 'Q',
     found_artist:   document.getElementById('colFoundArtist').value.trim().toUpperCase()   || 'R',
     found_duration: document.getElementById('colFoundDuration').value.trim().toUpperCase() || 'S',
-    cleaned_title:  document.getElementById('colCleanedTitle').value.trim().toUpperCase()  || 'T',
-    cleaned_artist: document.getElementById('colCleanedArtist').value.trim().toUpperCase() || 'U',
+    cleaned_title:      document.getElementById('colCleanedTitle').value.trim().toUpperCase()      || 'T',
+    cleaned_artist:     document.getElementById('colCleanedArtist').value.trim().toUpperCase()     || 'U',
+    val_status:         document.getElementById('colValStatus').value.trim().toUpperCase()         || 'V',
+    val_found_title:    document.getElementById('colValFoundTitle').value.trim().toUpperCase()     || 'W',
+    val_found_artist:   document.getElementById('colValFoundArtist').value.trim().toUpperCase()    || 'X',
+    val_found_duration: document.getElementById('colValFoundDuration').value.trim().toUpperCase()  || 'Y',
   };
   fetch('/api/config', { method: 'POST', body: JSON.stringify({
     spotify_accounts: accounts,
@@ -676,7 +707,8 @@ function classifyLine(l) {
   if (!l.match(/^\[\d+\/\d+\]/)) return 'info';
   if (l.includes('NOT FOUND'))       return 'missed';
   if (l.includes('SKIPPED'))         return 'skipped';
-  if (l.includes('duration mismatch')) return 'warn';
+  if (l.includes('mismatch'))        return 'warn';
+  if (l.includes('-> VALID'))        return 'found';
   if (l.includes('->'))              return 'found';
   return 'info';
 }
@@ -699,13 +731,14 @@ function setFilter(type) {
 function logClass(l) {
   if (l.includes('NOT FOUND'))                                  return 'ln';
   if (l.includes('SKIPPED'))                                    return 'ls';
-  if (l.includes('duration mismatch') || l.includes('WARNING')) return 'lm';
+  if (l.includes('mismatch') || l.includes('WARNING'))          return 'lm';
+  if (l.includes('-> VALID'))                                   return 'lf';
   if (l.includes('->'))                                         return 'lf';
   if (l.startsWith('Done!') || l.startsWith('Results saved') || l.startsWith('[AI Resolve] Done!') || l.startsWith('AI Resolve done!')) return 'ld';
   if (l.startsWith('Error') || l.startsWith('ERROR'))           return 'ln';
   if (l.includes('no candidates'))                              return 'ln';
   if (l.includes('[AI Resolve]') && l.includes('\u2192'))       return 'lf';
-  if (l.startsWith('Processing') || l.startsWith('Warning') || l.startsWith('[AI Resolve]')) return 'li';
+  if (l.startsWith('Processing') || l.startsWith('Validating') || l.startsWith('Warning') || l.startsWith('[AI Resolve]')) return 'li';
   return '';
 }
 
@@ -741,8 +774,8 @@ function startFetch() {
   const rt   = mode === 'range' ? parseInt(document.getElementById('rowTo').value)   : -1;
 
   document.getElementById('fetchBtn').disabled        = true;
-
   document.getElementById('resolveBtn').disabled      = true;
+  document.getElementById('validateBtn').disabled     = true;
   document.getElementById('cancelBtn').style.display  = 'block';
   document.getElementById('progressSection').style.display = 'block';
   document.getElementById('wave').classList.add('live');
@@ -780,6 +813,7 @@ function startResolve() {
 
   document.getElementById('fetchBtn').disabled        = true;
   document.getElementById('resolveBtn').disabled      = true;
+  document.getElementById('validateBtn').disabled     = true;
   document.getElementById('cancelBtn').style.display  = 'block';
   document.getElementById('progressSection').style.display = 'block';
   document.getElementById('wave').classList.add('live');
@@ -797,6 +831,35 @@ function startResolve() {
   setRing(0);
 
   fetch('/api/resolve', { method: 'POST', body: JSON.stringify({ file: fp, row_start: rf, row_end: rt }) });
+  poll();
+}
+
+function startValidate() {
+  const fp = document.getElementById('filePath').value.trim();
+  if (!fp) { alert('Please select a file first.'); return; }
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const rf   = mode === 'range' ? parseInt(document.getElementById('rowFrom').value) : 2;
+  const rt   = mode === 'range' ? parseInt(document.getElementById('rowTo').value)   : -1;
+
+  document.getElementById('fetchBtn').disabled        = true;
+  document.getElementById('resolveBtn').disabled      = true;
+  document.getElementById('validateBtn').disabled     = true;
+  document.getElementById('cancelBtn').style.display  = 'block';
+  document.getElementById('progressSection').style.display = 'block';
+  document.getElementById('wave').classList.add('live');
+  document.getElementById('npLabel').textContent = 'Validating ISRCs';
+  document.getElementById('npTrack').textContent = '';
+  document.getElementById('filterHint').textContent   = '';
+  document.querySelectorAll('.stat').forEach(s => s.classList.remove('active'));
+  activeFilter        = null;
+  lastLog             = [];
+  discoBallTriggered  = false;
+  ['sFound','sNF','sWarn','sSkip'].forEach(id => document.getElementById(id).textContent = '0');
+  document.getElementById('aiCostRow').style.display = 'none';
+  document.getElementById('log').innerHTML = '';
+  setRing(0);
+
+  fetch('/api/validate', { method: 'POST', body: JSON.stringify({ file: fp, row_start: rf, row_end: rt }) });
   poll();
 }
 
@@ -829,8 +892,9 @@ function poll() {
       T = setTimeout(poll, 500);
     } else {
       document.getElementById('fetchBtn').disabled        = false;
-      document.getElementById('resolveBtn').disabled     = false;
-      document.getElementById('cancelBtn').style.display = 'none';
+      document.getElementById('resolveBtn').disabled      = false;
+      document.getElementById('validateBtn').disabled     = false;
+      document.getElementById('cancelBtn').style.display  = 'none';
       document.getElementById('wave').classList.remove('live');
       document.getElementById('npLabel').textContent = 'Sync Complete';
       document.getElementById('npTrack').textContent = '';
